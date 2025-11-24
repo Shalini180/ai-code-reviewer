@@ -1,124 +1,116 @@
 """
-Pydantic models for API requests and responses.
+API routes for the Code Reviewer.
 """
-from pydantic import BaseModel, Field
-from typing import Optional, List, Dict, Any
-from datetime import datetime
-from enum import Enum
+import structlog
+import uuid
+import redis
+import json
+from fastapi import APIRouter, HTTPException, Request, Header
+from typing import Optional
+
+from src.api.models import (
+    ReviewRequest, ReviewResponse, JobStatusResponse, 
+    WebhookPayload, JobState
+)
+from src.queue.tasks import process_review_job
+from config.settings import settings
+
+logger = structlog.get_logger()
+router = APIRouter()
 
 
-class JobState(str, Enum):
-    """Job execution states."""
-    QUEUED = "queued"
-    RUNNING = "running"
-    DONE = "done"
-    ERROR = "error"
-
-
-class ReviewRequest(BaseModel):
-    """Request to create a new review job."""
-    repo: str = Field(..., description="Repository in format 'owner/name'")
-    base: str = Field(..., description="Base commit SHA")
-    head: str = Field(..., description="Head commit SHA")
-    pr: Optional[int] = Field(None, description="Pull request number")
-
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "repo": "octocat/hello-world",
-                "base": "abc123",
-                "head": "def456",
-                "pr": 42
-            }
-        }
-
-
-class ReviewResponse(BaseModel):
-    """Response after creating a review job."""
-    job_id: str = Field(..., description="Unique job identifier")
-    state: JobState = Field(default=JobState.QUEUED)
-    message: str = Field(default="Job queued for processing")
-
-
-class FindingSummary(BaseModel):
-    """Summary of a code finding."""
-    rule_id: str
-    severity: str
-    message: str
-    file_path: str
-    line: int
-
-
-class PatchSummary(BaseModel):
-    """Summary of a generated patch."""
-    file_path: str
-    rule_id: str
-    applied: bool
-    loc_changed: int
-    risk_score: float
-
-
-class JobStatusResponse(BaseModel):
-    """Detailed job status."""
-    job_id: str
-    state: JobState
-    created_at: datetime
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
-
-    # Review details
-    repo: str
-    base_sha: str
-    head_sha: str
-    pr_number: Optional[int] = None
-
-    # Results
-    findings_count: int = 0
-    patches_generated: int = 0
-    patches_applied: int = 0
-
-    findings: List[FindingSummary] = []
-    patches: List[PatchSummary] = []
-
-    # Error details
-    error: Optional[str] = None
-    error_details: Optional[Dict[str, Any]] = None
-
-
-class PolicyConfig(BaseModel):
-    """Policy configuration."""
-    denylist: List[str] = Field(
-        default=["auth/**", "secrets/**"],
-        description="Path patterns to deny auto-fixing"
+@router.post("/review", response_model=ReviewResponse)
+async def create_review_job(request: ReviewRequest):
+    """
+    Manually trigger a review job.
+    """
+    job_id = str(uuid.uuid4())
+    
+    logger.info(
+        "manual_review_requested",
+        job_id=job_id,
+        repo=request.repo
     )
-    max_loc: int = Field(
-        default=30,
-        description="Maximum lines of code per patch"
+
+    # Enqueue task
+    process_review_job.delay(
+        job_id=job_id,
+        repo=request.repo,
+        base_sha=request.base,
+        head_sha=request.head,
+        pr_number=request.pr
     )
-    auto_commit_threshold: float = Field(
-        default=0.25,
-        description="Risk threshold for auto-commit (0-1)"
-    )
-    max_files_per_patch: int = Field(
-        default=3,
-        description="Maximum files to modify per patch"
+
+    return ReviewResponse(
+        job_id=job_id,
+        state=JobState.QUEUED,
+        message="Job queued for processing"
     )
 
 
-class PolicyConfigResponse(BaseModel):
-    """Response after updating policy."""
-    success: bool
-    message: str
-    config: PolicyConfig
+@router.post("/webhook")
+async def github_webhook(
+    request: Request,
+    x_github_event: str = Header(...),
+    x_hub_signature_256: Optional[str] = Header(None)
+):
+    """
+    Handle GitHub webhooks.
+    """
+    # TODO: Verify signature using settings.github_webhook_secret
+    
+    payload = await request.json()
+    
+    if x_github_event == "pull_request":
+        action = payload.get("action")
+        if action in ["opened", "synchronize", "reopened"]:
+            pr = payload.get("pull_request", {})
+            repo = payload.get("repository", {})
+            installation = payload.get("installation", {})
+            
+            job_id = str(uuid.uuid4())
+            
+            repo_full_name = repo.get("full_name")
+            head_sha = pr.get("head", {}).get("sha")
+            base_sha = pr.get("base", {}).get("sha")
+            pr_number = pr.get("number")
+            installation_id = installation.get("id")
+            
+            if not (repo_full_name and head_sha and base_sha):
+                logger.warning("invalid_webhook_payload", action=action)
+                return {"status": "ignored", "reason": "missing data"}
+
+            logger.info(
+                "webhook_pr_event",
+                job_id=job_id,
+                repo=repo_full_name,
+                action=action
+            )
+
+            process_review_job.delay(
+                job_id=job_id,
+                repo=repo_full_name,
+                base_sha=base_sha,
+                head_sha=head_sha,
+                pr_number=pr_number,
+                installation_id=installation_id
+            )
+            
+            return {"status": "accepted", "job_id": job_id}
+            
+    return {"status": "ignored", "reason": "event not handled"}
 
 
-class WebhookPayload(BaseModel):
-    """GitHub webhook payload (simplified)."""
-    action: str
-    repository: Dict[str, Any]
-    pull_request: Optional[Dict[str, Any]] = None
-    number: Optional[int] = None
-
-    # Allow extra fields
-    class Config:
-        extra = "allow"
+@router.get("/jobs/{job_id}", response_model=JobStatusResponse)
+async def get_job_status(job_id: str):
+    """
+    Get the status of a review job.
+    """
+    r = redis.from_url(settings.redis_url)
+    data = r.get(f"job:{job_id}")
+    
+    if not data:
+        raise HTTPException(status_code=404, detail="Job not found")
+        
+    job_data = json.loads(data)
+    return JobStatusResponse(**job_data)

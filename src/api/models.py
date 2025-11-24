@@ -15,6 +15,54 @@ class JobState(str, Enum):
     ERROR = "error"
 
 
+class Severity(str, Enum):
+    """Severity levels for findings."""
+    INFO = "info"
+    WARNING = "warning"
+    ERROR = "error"
+
+
+class FindingSummary(BaseModel):
+    """Summary of a code finding."""
+    rule_id: str
+    severity: str
+    message: str
+    file_path: str
+    line: int
+
+
+class Finding(BaseModel):
+    """A code finding from any tool (static analysis or LLM)."""
+    tool_name: str = Field(..., description="Tool that generated this finding")
+    rule_id: str = Field(..., description="Rule identifier")
+    severity: Severity = Field(default=Severity.WARNING)
+    file_path: str = Field(..., description="Relative path to the file")
+    line: int = Field(..., description="Line number (1-based)")
+    end_line: Optional[int] = Field(None, description="End line number")
+    message: str = Field(..., description="Short description of the finding")
+    suggestion: Optional[str] = Field(None, description="Suggested fix or improvement")
+    confidence: float = Field(1.0, description="Confidence score (0.0-1.0)")
+
+    def to_summary(self) -> "FindingSummary":
+        """Convert to summary format."""
+        return FindingSummary(
+            rule_id=self.rule_id,
+            severity=self.severity.value,
+            message=self.message,
+            file_path=self.file_path,
+            line=self.line
+        )
+
+
+class PatchSummary(BaseModel):
+    """Summary of a generated patch."""
+    file_path: str
+    rule_id: str
+    applied: bool
+    loc_changed: int
+    risk_score: float
+
+
 class ReviewRequest(BaseModel):
     """Request to create a new review job."""
     repo: str = Field(..., description="Repository in format 'owner/name'")
@@ -38,24 +86,6 @@ class ReviewResponse(BaseModel):
     job_id: str = Field(..., description="Unique job identifier")
     state: JobState = Field(default=JobState.QUEUED)
     message: str = Field(default="Job queued for processing")
-
-
-class FindingSummary(BaseModel):
-    """Summary of a code finding."""
-    rule_id: str
-    severity: str
-    message: str
-    file_path: str
-    line: int
-
-
-class PatchSummary(BaseModel):
-    """Summary of a generated patch."""
-    file_path: str
-    rule_id: str
-    applied: bool
-    loc_changed: int
-    risk_score: float
 
 
 class JobStatusResponse(BaseModel):
