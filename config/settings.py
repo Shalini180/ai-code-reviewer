@@ -32,6 +32,11 @@ class Settings(BaseSettings):
     max_repo_size_mb: int = 500
     max_diff_loc: int = 1000
     worker_concurrency: int = 2
+    
+    # Analysis
+    analysis_mode: str = "hybrid"  # static_only, llm_only, or hybrid
+    use_real_apis: bool = False  # Set to True to use real GitHub/Anthropic APIs
+    evaluation_mode: bool = False  # Set to True to enable offline evaluation harness
 
     # Policy
     auto_commit_enabled: bool = False
@@ -43,6 +48,10 @@ class Settings(BaseSettings):
     # Verification
     enable_verification: bool = True
     verification_timeout_seconds: int = 300
+    
+    # Experiments
+    experiment_results_dir: str = "results/experiments"
+    experiment_random_seed: int = 42
 
     # Directories
     data_dir: str = "data"

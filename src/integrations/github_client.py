@@ -13,6 +13,13 @@ class GitHubClient:
     """Client for GitHub API interactions."""
 
     def __init__(self, installation_id: int = None):
+        self.mock_client = None
+        if not settings.use_real_apis:
+            from src.integrations.mock_github import MockGitHubClient
+            self.mock_client = MockGitHubClient(installation_id)
+            self.gh = None
+            return
+
         # Authenticate as App
         if settings.github_app_id and settings.github_app_private_key:
             self.integration = GithubIntegration(
@@ -36,6 +43,9 @@ class GitHubClient:
         """
         Create a GitHub Check Run with annotations.
         """
+        if self.mock_client:
+            return self.mock_client.post_check_run(repo_name, head_sha, findings)
+
         if not self.gh:
             logger.warning("skipping_github_post_no_client")
             return
@@ -87,6 +97,9 @@ class GitHubClient:
         """
         Post a summary comment on the PR.
         """
+        if self.mock_client:
+            return self.mock_client.post_pr_comment(repo_name, pr_number, findings)
+
         if not self.gh:
             return
 

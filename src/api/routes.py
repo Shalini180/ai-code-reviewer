@@ -26,10 +26,14 @@ async def create_review_job(request: ReviewRequest):
     """
     job_id = str(uuid.uuid4())
     
+    # Get analysis mode from request or use default
+    analysis_mode = request.analysis_mode.value if request.analysis_mode else settings.analysis_mode
+    
     logger.info(
         "manual_review_requested",
         job_id=job_id,
-        repo=request.repo
+        repo=request.repo,
+        analysis_mode=analysis_mode
     )
 
     # Enqueue task
@@ -38,13 +42,14 @@ async def create_review_job(request: ReviewRequest):
         repo=request.repo,
         base_sha=request.base,
         head_sha=request.head,
-        pr_number=request.pr
+        pr_number=request.pr,
+        analysis_mode=analysis_mode
     )
 
     return ReviewResponse(
         job_id=job_id,
         state=JobState.QUEUED,
-        message="Job queued for processing"
+        message=f"Job queued for processing (mode: {analysis_mode})"
     )
 
 
@@ -87,13 +92,15 @@ async def github_webhook(
                 action=action
             )
 
+            # Use default analysis mode for webhooks
             process_review_job.delay(
                 job_id=job_id,
                 repo=repo_full_name,
                 base_sha=base_sha,
                 head_sha=head_sha,
                 pr_number=pr_number,
-                installation_id=installation_id
+                installation_id=installation_id,
+                analysis_mode=settings.analysis_mode
             )
             
             return {"status": "accepted", "job_id": job_id}

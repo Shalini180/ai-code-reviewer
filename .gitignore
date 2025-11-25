@@ -57,3 +57,5 @@ htmlcov/
 # OS
 .DS_Store
 Thumbs.dbdata/repos/
+
+test_data/sample_repo/

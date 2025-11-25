@@ -38,6 +38,7 @@ def process_review_job(
     head_sha: str,
     pr_number: Optional[int] = None,
     installation_id: Optional[int] = None,
+    analysis_mode: Optional[str] = None,
 ) -> None:
     """Main task for processing a code review job.
 
@@ -51,6 +52,10 @@ def process_review_job(
     6️⃣ Post results to GitHub (check run & optional PR comment).
     7️⃣ Clean up the temporary clone.
     """
+    # Default to settings if not provided
+    if analysis_mode is None:
+        analysis_mode = settings.analysis_mode
+    
     logger.info(
         "job_started",
         job_id=job_id,
@@ -58,6 +63,7 @@ def process_review_job(
         base=base_sha,
         head=head_sha,
         pr=pr_number,
+        analysis_mode=analysis_mode,
     )
 
     # Initialise a minimal job state record.
@@ -70,6 +76,7 @@ def process_review_job(
         "base_sha": base_sha,
         "head_sha": head_sha,
         "pr_number": pr_number,
+        "analysis_mode": analysis_mode,
         "findings_count": 0,
         "patches_generated": 0,
         "patches_applied": 0,
@@ -92,9 +99,9 @@ def process_review_job(
         diffs = DiffParser.get_pr_diff(repo_path, base_sha, head_sha)
         logger.info("diff_parsed", files_changed=len(diffs))
 
-        # 3️⃣ Run analysis.
+        # 3️⃣ Run analysis with specified mode.
         engine = AnalysisEngine()
-        findings = engine.analyze(repo_path, diffs)
+        findings = engine.analyze(repo_path, diffs, mode=analysis_mode)
         job_state["findings_count"] = len(findings)
         job_state["findings"] = [f.to_summary().model_dump() for f in findings]
         save_job_state(job_id, job_state)

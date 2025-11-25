@@ -9,7 +9,7 @@ services:
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: [ "CMD", "redis-cli", "ping" ]
       interval: 5s
       timeout: 3s
       retries: 5
@@ -28,11 +28,15 @@ services:
       - GITHUB_APP_PRIVATE_KEY=${GITHUB_APP_PRIVATE_KEY}
       - GITHUB_WEBHOOK_SECRET=${GITHUB_WEBHOOK_SECRET}
       - LOG_LEVEL=INFO
+      - ANALYSIS_MODE=${ANALYSIS_MODE:-hybrid}
+      - USE_REAL_APIS=${USE_REAL_APIS:-false}
+      - EXPERIMENT_RESULTS_DIR=${EXPERIMENT_RESULTS_DIR:-results/experiments}
+      - EXPERIMENT_RANDOM_SEED=${EXPERIMENT_RANDOM_SEED:-42}
     volumes:
       - ./src:/app/src
       - ./config:/app/config
       - ./data:/app/data
-      - /var/run/docker.sock:/var/run/docker.sock  # For sandbox
+      - /var/run/docker.sock:/var/run/docker.sock # For sandbox
     depends_on:
       redis:
         condition: service_healthy
@@ -49,6 +53,10 @@ services:
       - GITHUB_APP_ID=${GITHUB_APP_ID}
       - GITHUB_APP_PRIVATE_KEY=${GITHUB_APP_PRIVATE_KEY}
       - LOG_LEVEL=INFO
+      - ANALYSIS_MODE=${ANALYSIS_MODE:-hybrid}
+      - USE_REAL_APIS=${USE_REAL_APIS:-false}
+      - EXPERIMENT_RESULTS_DIR=${EXPERIMENT_RESULTS_DIR:-results/experiments}
+      - EXPERIMENT_RANDOM_SEED=${EXPERIMENT_RANDOM_SEED:-42}
     volumes:
       - ./src:/app/src
       - ./config:/app/config

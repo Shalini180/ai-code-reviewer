@@ -1,0 +1,14 @@
+{
+    "test_pr_001": [
+        {
+            "file": "vulnerable_code.py",
+            "line": 10,
+            "category": "security"
+        },
+        {
+            "file": "vulnerable_code.py",
+            "line": 15,
+            "category": "security"
+        }
+    ]
+}

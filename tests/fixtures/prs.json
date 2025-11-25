@@ -1,0 +1,8 @@
+[
+    {
+        "pr_id": "test_pr_001",
+        "repo_path": "test_data/sample_repo",
+        "base_sha": "HEAD~1",
+        "head_sha": "HEAD"
+    }
+]

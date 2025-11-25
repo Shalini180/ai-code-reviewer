@@ -1,0 +1,18 @@
+{
+    "name": "example_experiment",
+    "repos": [
+        {
+            "url": "https://github.com/octocat/Hello-World.git",
+            "base_sha": "7fd1a60b01f91b314f59955a4e4d4e80d8edf11d",
+            "head_sha": "553c2077f0edc3d5dc5d17262f6aa498e69d6f8e",
+            "pr_number": null,
+            "description": "Example repository with simple changes"
+        }
+    ],
+    "modes": [
+        "static_only",
+        "llm_only",
+        "hybrid"
+    ],
+    "output_dir": "results/experiments"
+}

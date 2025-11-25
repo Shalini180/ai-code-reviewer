@@ -7,6 +7,13 @@ from datetime import datetime
 from enum import Enum
 
 
+class AnalysisMode(str, Enum):
+    """Analysis modes for code review."""
+    STATIC_ONLY = "static_only"
+    LLM_ONLY = "llm_only"
+    HYBRID = "hybrid"
+
+
 class JobState(str, Enum):
     """Job execution states."""
     QUEUED = "queued"
@@ -69,6 +76,7 @@ class ReviewRequest(BaseModel):
     base: str = Field(..., description="Base commit SHA")
     head: str = Field(..., description="Head commit SHA")
     pr: Optional[int] = Field(None, description="Pull request number")
+    analysis_mode: Optional[AnalysisMode] = Field(None, description="Analysis mode to use")
 
     class Config:
         json_schema_extra = {
@@ -76,7 +84,8 @@ class ReviewRequest(BaseModel):
                 "repo": "octocat/hello-world",
                 "base": "abc123",
                 "head": "def456",
-                "pr": 42
+                "pr": 42,
+                "analysis_mode": "hybrid"
             }
         }
 
@@ -101,6 +110,7 @@ class JobStatusResponse(BaseModel):
     base_sha: str
     head_sha: str
     pr_number: Optional[int] = None
+    analysis_mode: str = "hybrid"
 
     # Results
     findings_count: int = 0

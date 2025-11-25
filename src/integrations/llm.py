@@ -15,6 +15,12 @@ class LLMReviewer:
     """AI Code Reviewer using Anthropic."""
 
     def __init__(self):
+        self.mock_reviewer = None
+        if not settings.use_real_apis:
+            from src.integrations.mock_llm import MockLLMReviewer
+            self.mock_reviewer = MockLLMReviewer()
+            return
+
         self.client = Anthropic(api_key=settings.anthropic_api_key)
         self.model = settings.anthropic_model
 
@@ -22,6 +28,9 @@ class LLMReviewer:
         """
         Review the diffs using LLM, incorporating static analysis context.
         """
+        if self.mock_reviewer:
+            return self.mock_reviewer.review_diff(diffs, static_findings)
+
         findings = []
         
         # Filter for relevant files (e.g., Python)
