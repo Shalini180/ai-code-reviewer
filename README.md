@@ -1,210 +1,263 @@
-# AI Code Reviewer
+# AI-Assisted Code Review System
 
-A hybrid AI-powered code review system that combines static analysis tools (Semgrep, Bandit) with LLM-based review (Claude) to automatically analyze pull requests.
+**Event-Driven Hybrid Analysis under Uncertainty**
 
-## Features
+A research prototype exploring how automated code review systems can behave predictably under latency, partial failure, and noisy probabilistic signals.
 
-- **Three Analysis Modes**:
-  - `static_only`: Fast static analysis with Semgrep and Bandit
-  - `llm_only`: AI-powered review using Claude
-  - `hybrid`: Combined approach for best coverage
-  
-- **GitHub Integration**: Automatic PR reviews via webhooks
-- **Offline Experiments**: Research framework for comparing analysis modes
-- **Evaluation Tools**: Metrics and overlap analysis between modes
+Rather than treating LLMs as authoritative reviewers, this system treats them as **uncertain components** embedded within a deterministic, event-driven pipeline that degrades safely when probabilistic analysis is slow or unavailable.
 
-## Quick Start
+---
 
-### 1. Setup Environment
+## The Problem
 
-```bash
-cp .env.example .env
-# Edit .env with your API keys
-```
+Automated code review tools face a fundamental tension:
 
-### 2. Run with Docker Compose
+| Approach | Strengths | Weaknesses |
+|----------|-----------|------------|
+| **Static analysis** | Fast, deterministic, reliable | Limited semantic understanding |
+| **LLM-based review** | Expressive, catches design issues | Slow, costly, unreliable under failure |
 
-```bash
-docker-compose up -d
-```
+Most existing systems either block developer workflows waiting for AI responses, or silently fail when probabilistic components are unavailable.
 
-### 3. Test the API
+**This project asks:** How should review pipelines be architected so that uncertainty and latency do not compromise availability or trust?
 
-```bash
-curl -X POST http://localhost:8000/review \\
-  -H "Content-Type: application/json" \\
-  -d '{
-    "repo": "owner/repo",
-    "base": "base_sha",
-    "head": "head_sha",
-    "analysis_mode": "hybrid"
-  }'
-```
+---
+
+## Key Insights
+
+- Probabilistic review improves coverage but introduces latency risk
+- Static analysis provides a reliable baseline under failure
+- Hybrid designs work best when probabilistic reasoning is **constrained, not trusted blindly**
+- In developer-facing systems, **availability and predictability matter more than completeness**
+
+---
 
 ## Architecture
 
 ```
-┌─────────────┐     ┌──────────┐     ┌─────────────┐
-│   GitHub    │────▶│   API    │────▶│   Celery    │
-│  Webhooks   │     │ (FastAPI)│     │   Worker    │
-└─────────────┘     └──────────┘     └─────────────┘
-                          │                  │
-                          ▼                  ▼
-                    ┌──────────┐     ┌─────────────┐
-                    │  Redis   │     │  Analysis   │
-                    │  (Jobs)  │     │   Engine    │
-                    └──────────┘     └─────────────┘
-                                            │
-                         ┌──────────────────┼──────────────────┐
-                         ▼                  ▼                  ▼
-                    ┌─────────┐      ┌──────────┐      ┌──────────┐
-                    │ Semgrep │      │  Bandit  │      │  Claude  │
-                    └─────────┘      └──────────┘      └──────────┘
+GitHub Pull Request
+        │
+        ▼
+   ┌─────────┐
+   │ Webhook │
+   └────┬────┘
+        │
+        ▼
+   ┌─────────┐
+   │ FastAPI │
+   └────┬────┘
+        │
+        ▼
+   ┌─────────┐
+   │  Redis  │
+   │  Queue  │
+   └────┬────┘
+        │
+        ▼
+   ┌─────────┐
+   │ Celery  │
+   │ Workers │
+   └────┬────┘
+        │
+        ▼
+┌───────────────────────────┐
+│  Hybrid Analysis Engine   │
+│                           │
+│  ┌─────────┐ ┌─────────┐  │
+│  │ Static  │ │   LLM   │  │
+│  │Analysis │ │ Review  │  │
+│  └─────────┘ └─────────┘  │
+└───────────────────────────┘
+        │
+        ▼
+   Inline PR Feedback
 ```
+
+All components are decoupled—failures or delays in one stage don't propagate to others.
+
+---
+
+## Design Principles
+
+| Principle | Implementation |
+|-----------|----------------|
+| **Non-blocking ingestion** | Webhook → queue separation |
+| **Component isolation** | Deterministic and probabilistic paths are independent |
+| **Explicit fallback** | Defined degradation when LLM fails or times out |
+| **Predictable under load** | Static analysis always available as baseline |
+
+---
 
 ## Analysis Modes
 
 ### Static Only
-- Runs Semgrep (security audit rules) and Bandit (Python security)
-- Fast, deterministic results
-- Good for CI/CD pipelines
+Runs deterministic analysis using Semgrep and Bandit. Fast, predictable, and serves as a safe baseline.
 
 ### LLM Only
-- Uses Claude for nuanced code review
-- Catches logic errors and design issues
-- Slower but more comprehensive
+Uses LLM-based semantic review. Captures higher-level logic and design issues, but subject to latency and availability constraints.
 
-### Hybrid (Recommended)
-- Runs static analysis first
-- Passes findings to LLM as context
-- LLM verifies and refines results
-- Best overall coverage
+### Hybrid *(recommended)*
+1. Runs static analysis first
+2. Passes findings to LLM as structured context
+3. LLM verifies, refines, or rejects static findings
 
-## Running Experiments
+The hybrid mode **constrains** probabilistic reasoning rather than relying on it blindly.
 
-For research and comparative analysis:
+---
+
+## Failure Handling
+
+The system degrades gracefully:
+
+```
+Static analysis fails  →  Remaining analyzers continue
+LLM inference times out  →  Fall back to static-only results
+External APIs unavailable  →  Review availability preserved
+```
+
+Code review feedback remains available even when probabilistic components are unreliable.
+
+---
+
+## Getting Started
+
+### Prerequisites
+
+- Python 3.9+
+- Redis server
+- GitHub App or webhook access
+
+### Installation
 
 ```bash
-# Create experiment config
-cat > experiments/my_experiment.json <<EOF
-{
-  "name": "mode_comparison",
-  "repos": [
-    {
-      "url": "https://github.com/owner/repo.git",
-      "base_sha": "abc123",
-      "head_sha": "def456"
-    }
-  ],
-  "modes": ["static_only", "llm_only", "hybrid"]
-}
-EOF
-
-# Run experiments
-python scripts/run_experiments.py experiments/my_experiment.json
-
-# Evaluate results
-python scripts/evaluate_results.py results/experiments/mode_comparison_*.jsonl
-```
-
-## Project Structure
-
-```
-├── src/
-│   ├── api/              # FastAPI application
-│   ├── analysis/         # Analysis engine and parsers
-│   ├── experiments/      # Experiment framework
-│   ├── integrations/     # GitHub, LLM, Git clients
-│   ├── queue/            # Celery tasks
-│   └── telemetry/        # Logging
-├── config/               # Settings
-├── experiments/          # Experiment configurations
-├── scripts/              # CLI tools
-├── tests/                # Test suite
-├── docs/                 # Documentation
-└── docker-compose.yml    # Docker setup
-```
-
-## Documentation
-
-- [Deployment Guide](docs/DEPLOYMENT.md) - Full deployment instructions
-- [Execution Analysis](docs/EXECUTION_ANALYSIS.md) - System architecture deep-dive
-
-## Development
-
-### Install Dependencies
-
-```bash
+git clone https://github.com/yourusername/ai-code-review.git
+cd ai-code-review
 pip install -r requirements.txt
 ```
 
-### Run Tests
+### Configuration
 
 ```bash
-pytest
+cp .env.example .env
+# Edit .env with your GitHub App credentials and Redis URL
 ```
 
-### Run Locally (without Docker)
+### Running Locally
 
 ```bash
 # Start Redis
 redis-server
 
-# Start API
-uvicorn src.api.main:app --reload
+# Start Celery workers
+celery -A app.worker worker --loglevel=info
 
-# Start Worker
-celery -A src.queue.worker worker --loglevel=info
+# Start API server
+uvicorn app.main:app --reload
+
+# Expose webhook (for local development)
+ngrok http 8000
 ```
 
-## Research Use Cases
-
-This system is designed for MSCS-level research on code analysis:
-
-1. **Mode Comparison**: Compare static vs LLM vs hybrid approaches
-2. **Overlap Analysis**: Measure finding overlap between tools
-3. **Performance Metrics**: Runtime, finding counts, severity distribution
-4. **Reproducibility**: Deterministic experiments with mock clients
-
-Example research questions:
-- How much overlap exists between static and LLM findings?
-- Which mode has better precision/recall? (with ground truth labels)
-- What types of issues does each approach excel at?
-- How does hybrid mode improve over individual approaches?
-
-## Configuration
-
-Key environment variables:
+### Running an Analysis
 
 ```bash
-# Analysis
-ANALYSIS_MODE=hybrid              # Default mode
-USE_REAL_APIS=false              # Use mocks for testing
+# Trigger analysis on a PR (manual testing)
+python scripts/analyze_pr.py --repo owner/repo --pr 123 --mode hybrid
 
-# APIs
-ANTHROPIC_API_KEY=sk-...         # Claude API key
-GITHUB_APP_ID=123456             # GitHub App ID
-GITHUB_APP_PRIVATE_KEY=...       # GitHub App private key
-
-# Experiments
-EXPERIMENT_RESULTS_DIR=results/experiments
-EXPERIMENT_RANDOM_SEED=42        # For reproducibility
+# Compare modes
+python scripts/compare_modes.py --repo owner/repo --pr 123
 ```
+
+---
+
+## Project Structure
+
+```
+├── app/
+│   ├── main.py              # FastAPI application
+│   ├── worker.py            # Celery task definitions
+│   ├── webhook.py           # GitHub webhook handlers
+│   └── analysis/
+│       ├── static.py        # Semgrep/Bandit integration
+│       ├── llm.py           # LLM review logic
+│       └── hybrid.py        # Hybrid orchestration
+├── scripts/
+│   ├── analyze_pr.py        # Manual PR analysis
+│   └── compare_modes.py     # Mode comparison experiments
+├── tests/
+└── experiments/             # Research experiment configs
+```
+
+---
+
+## Research Applications
+
+Beyond automation, the system supports controlled experimentation:
+
+- **Coverage comparison:** Static vs LLM vs hybrid findings
+- **Agreement analysis:** Overlap and disagreement between tools
+- **Operational behavior:** Latency and availability under different modes
+
+The goal is not to optimize accuracy, but to understand how different analysis strategies behave under realistic operational constraints.
+
+---
+
+## Tech Stack
+
+| Component | Technology |
+|-----------|------------|
+| API | FastAPI |
+| Queue | Redis |
+| Workers | Celery |
+| Static Analysis | Semgrep, Bandit |
+| Integration | GitHub Webhooks |
+
+---
+
+## Limitations
+
+- LLM inference introduces non-deterministic latency
+- Research prototype, not a production CI service
+- Evaluation focuses on behavior and failure modes, not ground-truth correctness
+
+---
+
+## Why This Matters
+
+This project complements systems research on uncertainty-aware scheduling and tail behavior by examining how **probabilistic components interact with deterministic control logic**.
+
+It demonstrates how system design choices can **surface uncertainty explicitly** rather than hiding it behind average-case behavior.
+
+---
+
+## Related Work
+
+- [Semgrep](https://semgrep.dev/) - Static analysis engine
+- [Bandit](https://bandit.readthedocs.io/) - Python security linter
+- Dean & Barroso, "The Tail at Scale" (2013)
+
+---
+
+## Citation
+
+```bibtex
+@software{ai_code_review_system,
+  author = {Shalini},
+  title = {AI-Assisted Code Review: Event-Driven Hybrid Analysis under Uncertainty},
+  year = {2025},
+  url = {https://github.com/yourusername/ai-code-review}
+}
+```
+
+---
 
 ## License
 
-MIT
+MIT License. See [LICENSE](LICENSE) for details.
 
-## Contributing
+---
 
-Contributions welcome! Please:
-1. Fork the repository
-2. Create a feature branch
-3. Add tests for new functionality
-4. Submit a pull request
+## Status
 
-## Support
-
-- GitHub Issues: Report bugs or request features
-- Documentation: See `docs/` directory
-- Deployment Help: See `docs/DEPLOYMENT.md`
+✅ Completed as an independent systems research prototype  
+🔬 Designed for architectural exploration and controlled experimentation
